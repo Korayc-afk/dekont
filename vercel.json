@@ -5,7 +5,8 @@
   "functions": {
     "api/index.js": {
       "maxDuration": 10,
-      "runtime": "nodejs18.x"
+      "runtime": "nodejs18.x",
+      "includeFiles": "api/**"
     }
   },
   "rewrites": [

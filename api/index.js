@@ -448,7 +448,7 @@ app.use((error, req, res, next) => {
 });
 
 // Vercel serverless function handler
-export default async (req, res) => {
+module.exports = async (req, res) => {
   try {
     // Path'i düzenle (/api/health -> /health)
     const originalUrl = req.url;
