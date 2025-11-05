@@ -60,27 +60,31 @@ async function uploadToSupabase(file, filename) {
     throw new Error('Supabase not configured');
   }
 
-  const bucketName = 'receipts'; // Küçük harf kullan
+  const requestedBucketName = 'receipts'; // İstenen bucket adı (küçük harf)
   
   try {
-    // Önce bucket'ın var olup olmadığını kontrol et (case-insensitive)
+    // Önce bucket'ın var olup olmadığını kontrol et ve gerçek adını bul
     const { data: buckets, error: listError } = await supabase.storage.listBuckets();
+    
+    let actualBucketName = requestedBucketName;
     
     if (listError) {
       console.error('Error listing buckets:', listError);
-      console.warn('⚠️ Could not list buckets, trying upload anyway...');
+      console.warn('⚠️ Could not list buckets, using requested name:', requestedBucketName);
     } else {
-      // Case-insensitive kontrol - bucket adı büyük/küçük harf fark etmez
-      const bucketExists = buckets?.some(b => b.name.toLowerCase() === bucketName.toLowerCase());
-      if (!bucketExists) {
+      // Case-insensitive kontrol - bucket adını bul
+      const foundBucket = buckets?.find(b => b.name.toLowerCase() === requestedBucketName.toLowerCase());
+      if (!foundBucket) {
         console.error('Available buckets:', buckets?.map(b => b.name));
-        throw new Error(`Storage bucket "${bucketName}" not found. Available buckets: ${buckets?.map(b => b.name).join(', ') || 'none'}. Please create it in Supabase Dashboard → Storage.`);
+        throw new Error(`Storage bucket "${requestedBucketName}" not found. Available buckets: ${buckets?.map(b => b.name).join(', ') || 'none'}. Please create it in Supabase Dashboard → Storage.`);
       }
-      console.log(`✅ Bucket found: "${buckets?.find(b => b.name.toLowerCase() === bucketName.toLowerCase())?.name}"`);
+      // Gerçek bucket adını kullan (büyük/küçük harf korunur)
+      actualBucketName = foundBucket.name;
+      console.log(`✅ Bucket found: "${actualBucketName}" (requested: "${requestedBucketName}")`);
     }
 
     const { data, error } = await supabase.storage
-      .from(bucketName)
+      .from(actualBucketName)
       .upload(filename, file.buffer, {
         contentType: file.mimetype || 'application/octet-stream',
         upsert: false
@@ -103,7 +107,7 @@ async function uploadToSupabase(file, filename) {
 
     // Public URL al
     const { data: urlData } = supabase.storage
-      .from(bucketName)
+      .from(actualBucketName)
       .getPublicUrl(filename);
 
     return urlData.publicUrl;
@@ -119,13 +123,17 @@ async function deleteFromSupabase(filename) {
     return;
   }
 
-  const bucketName = 'receipts';
+  const requestedBucketName = 'receipts';
+  
+  // Gerçek bucket adını bul (case-insensitive)
+  const { data: buckets } = await supabase.storage.listBuckets();
+  const actualBucketName = buckets?.find(b => b.name.toLowerCase() === requestedBucketName.toLowerCase())?.name || requestedBucketName;
   
   // Path'den filename çıkar (receipts/xxx.jpg -> xxx.jpg)
   const filePath = filename.includes('/') ? filename.split('/').pop() : filename;
 
   await supabase.storage
-    .from(bucketName)
+    .from(actualBucketName)
     .remove([filePath]);
 }
 
