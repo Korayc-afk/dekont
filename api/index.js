@@ -343,5 +343,13 @@ app.delete('/tickets/:id', (req, res) => {
 });
 
 // Vercel serverless function handler
-module.exports = app;
+// Tüm /api/* istekleri buraya yönlendirilir
+module.exports = (req, res) => {
+  // Path'i düzenle (/api/health -> /health)
+  const originalUrl = req.url;
+  const path = originalUrl.replace(/^\/api/, '') || '/';
+  req.url = path;
+  
+  return app(req, res);
+};
 
