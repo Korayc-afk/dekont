@@ -534,7 +534,6 @@ const InvestmentForm = () => {
                   onChange={handleFileChange}
                   className="hidden"
                   accept="image/jpeg,image/jpg,image/png,image/webp,application/pdf,.jpg,.jpeg,.png,.webp,.pdf"
-                  required
                 />
                 <div className={`flex-1 px-4 py-3 backdrop-blur-sm border-2 rounded-xl flex items-center overflow-hidden transition-all duration-300 ${
                   fileError 
