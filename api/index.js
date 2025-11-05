@@ -22,10 +22,19 @@ const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 let supabase = null;
 
 if (supabaseUrl && supabaseServiceKey) {
-  supabase = createClient(supabaseUrl, supabaseServiceKey);
-  console.log('Supabase initialized');
+  try {
+    supabase = createClient(supabaseUrl, supabaseServiceKey, {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false
+      }
+    });
+    console.log('✅ Supabase initialized successfully');
+  } catch (error) {
+    console.error('❌ Supabase initialization error:', error);
+  }
 } else {
-  console.warn('Supabase credentials not found. API will not work properly.');
+  console.warn('⚠️ Supabase credentials not found. URL:', !!supabaseUrl, 'Key:', !!supabaseServiceKey);
 }
 
 // Multer configuration - memory storage (Supabase'e yüklenecek)
@@ -51,6 +60,18 @@ async function uploadToSupabase(file, filename) {
   const bucketName = 'receipts';
   
   try {
+    // Önce bucket'ın var olup olmadığını kontrol et
+    const { data: buckets, error: listError } = await supabase.storage.listBuckets();
+    
+    if (listError) {
+      console.error('Error listing buckets:', listError);
+    } else {
+      const bucketExists = buckets?.some(b => b.name === bucketName);
+      if (!bucketExists) {
+        throw new Error(`Storage bucket "${bucketName}" not found. Please create it in Supabase Dashboard → Storage.`);
+      }
+    }
+
     const { data, error } = await supabase.storage
       .from(bucketName)
       .upload(filename, file.buffer, {
@@ -60,6 +81,16 @@ async function uploadToSupabase(file, filename) {
 
     if (error) {
       console.error('Supabase upload error:', error);
+      console.error('Upload error details:', {
+        message: error.message,
+        statusCode: error.statusCode,
+        error: error
+      });
+      
+      if (error.message?.includes('not found') || error.message?.includes('does not exist')) {
+        throw new Error(`Storage bucket "${bucketName}" not found. Please create it in Supabase Dashboard → Storage.`);
+      }
+      
       throw new Error(`Storage error: ${error.message}`);
     }
 
@@ -195,13 +226,26 @@ app.get('/tickets/user/:userId', async (req, res) => {
 
 app.post('/tickets', upload.single('receipt'), async (req, res) => {
   try {
+    console.log('📥 POST /tickets request received');
+    
     if (!supabase) {
-      return res.status(500).json({ error: 'Supabase not configured' });
+      console.error('❌ Supabase not initialized');
+      return res.status(500).json({ 
+        error: 'Supabase not configured',
+        hint: 'Check SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY environment variables'
+      });
     }
 
     if (!req.file) {
+      console.error('❌ No file uploaded');
       return res.status(400).json({ error: 'Receipt file is required' });
     }
+    
+    console.log('📄 File received:', {
+      originalname: req.file.originalname,
+      mimetype: req.file.mimetype,
+      size: req.file.size
+    });
 
     const {
       userId,
@@ -223,10 +267,21 @@ app.post('/tickets', upload.single('receipt'), async (req, res) => {
 
     let receiptUrl = '';
     try {
+      console.log('📤 Uploading file to Supabase Storage...');
       receiptUrl = await uploadToSupabase(req.file, filename);
+      console.log('✅ File uploaded successfully:', receiptUrl);
     } catch (uploadError) {
-      console.error('Upload error:', uploadError);
-      return res.status(500).json({ error: 'File upload failed', details: uploadError.message });
+      console.error('❌ Upload error:', uploadError);
+      console.error('Upload error details:', {
+        message: uploadError.message,
+        code: uploadError.code,
+        error: uploadError
+      });
+      return res.status(500).json({ 
+        error: 'File upload failed', 
+        details: uploadError.message,
+        hint: 'Check if Storage bucket "receipts" exists and is public'
+      });
     }
 
     // Database'e kaydet
@@ -245,6 +300,9 @@ app.post('/tickets', upload.single('receipt'), async (req, res) => {
       adminNote: ''
     };
 
+    console.log('💾 Saving ticket to database...');
+    console.log('Ticket data:', JSON.stringify(ticketData, null, 2));
+    
     const { data, error } = await supabase
       .from('tickets')
       .insert([ticketData])
@@ -253,10 +311,30 @@ app.post('/tickets', upload.single('receipt'), async (req, res) => {
 
     if (error) {
       // Upload başarılı ama DB hatası - dosyayı sil
-      await deleteFromSupabase(filename);
-      console.error('Error creating ticket:', error);
-      return res.status(500).json({ error: 'Database error', details: error.message });
+      console.error('❌ Database error:', error);
+      console.error('Error details:', {
+        message: error.message,
+        code: error.code,
+        details: error.details,
+        hint: error.hint
+      });
+      
+      try {
+        await deleteFromSupabase(filename);
+        console.log('🗑️ Deleted uploaded file due to DB error');
+      } catch (delError) {
+        console.error('Error deleting file after DB error:', delError);
+      }
+      
+      return res.status(500).json({ 
+        error: 'Database error', 
+        details: error.message,
+        code: error.code,
+        hint: error.hint || 'Check if table "tickets" exists and RLS policies are correct'
+      });
     }
+
+    console.log('✅ Ticket created successfully:', data.id);
 
     res.status(201).json(data);
   } catch (error) {
