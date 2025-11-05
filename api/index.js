@@ -60,7 +60,7 @@ async function uploadToSupabase(file, filename) {
     throw new Error('Supabase not configured');
   }
 
-  const bucketName = 'receipts';
+  const bucketName = 'receipts'; // Küçük harf kullan
   
   try {
     // Önce bucket'ın var olup olmadığını kontrol et (case-insensitive)
@@ -70,16 +70,15 @@ async function uploadToSupabase(file, filename) {
       console.error('Error listing buckets:', listError);
       console.warn('⚠️ Could not list buckets, trying upload anyway...');
     } else {
-      // Case-insensitive kontrol
+      // Case-insensitive kontrol - bucket adı büyük/küçük harf fark etmez
       const bucketExists = buckets?.some(b => b.name.toLowerCase() === bucketName.toLowerCase());
       if (!bucketExists) {
         console.error('Available buckets:', buckets?.map(b => b.name));
         throw new Error(`Storage bucket "${bucketName}" not found. Available buckets: ${buckets?.map(b => b.name).join(', ') || 'none'}. Please create it in Supabase Dashboard → Storage.`);
       }
-      console.log(`✅ Bucket "${bucketName}" found`);
+      console.log(`✅ Bucket found: "${buckets?.find(b => b.name.toLowerCase() === bucketName.toLowerCase())?.name}"`);
     }
 
-    console.log(`📤 Attempting to upload to bucket: "${bucketName}"`);
     const { data, error } = await supabase.storage
       .from(bucketName)
       .upload(filename, file.buffer, {
@@ -92,23 +91,15 @@ async function uploadToSupabase(file, filename) {
       console.error('Upload error details:', {
         message: error.message,
         statusCode: error.statusCode,
-        error: error,
-        bucketName: bucketName
+        error: error
       });
       
-      // Daha detaylı hata mesajı
-      if (error.message?.includes('not found') || error.message?.includes('does not exist') || error.message?.includes('Bucket not found')) {
-        throw new Error(`Storage bucket "${bucketName}" not found. Please create it in Supabase Dashboard → Storage with exact name "${bucketName}" (case-sensitive).`);
-      }
-      
-      if (error.message?.includes('new row violates row-level security policy') || error.message?.includes('RLS')) {
-        throw new Error(`Storage bucket "${bucketName}" exists but upload policy is missing. Please add an INSERT policy in Supabase Dashboard → Storage → Policies.`);
+      if (error.message?.includes('not found') || error.message?.includes('does not exist')) {
+        throw new Error(`Storage bucket "${bucketName}" not found. Please create it in Supabase Dashboard → Storage.`);
       }
       
       throw new Error(`Storage error: ${error.message}`);
     }
-    
-    console.log(`✅ File uploaded successfully: ${data.path}`);
 
     // Public URL al
     const { data: urlData } = supabase.storage
