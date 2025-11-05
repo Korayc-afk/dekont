@@ -124,11 +124,22 @@ async function deleteFromSupabase(filename) {
 
 // Routes
 app.get('/health', (req, res) => {
-  res.json({ 
-    status: 'OK', 
+  const health = {
+    status: 'OK',
     message: 'Server is running',
-    supabase: !!supabase
-  });
+    supabase: !!supabase,
+    timestamp: new Date().toISOString()
+  };
+  
+  if (!supabase) {
+    health.warning = 'Supabase not configured. Check environment variables.';
+    health.env_check = {
+      SUPABASE_URL: !!process.env.SUPABASE_URL,
+      SUPABASE_SERVICE_ROLE_KEY: !!process.env.SUPABASE_SERVICE_ROLE_KEY
+    };
+  }
+  
+  res.json(health);
 });
 
 app.get('/tickets', async (req, res) => {
