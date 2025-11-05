@@ -289,12 +289,24 @@ app.post('/tickets', upload.single('receipt'), async (req, res) => {
       console.error('Upload error details:', {
         message: uploadError.message,
         code: uploadError.code,
-        error: uploadError
+        error: uploadError,
+        stack: uploadError.stack
       });
+      
+      // Daha detaylı hata mesajı
+      let errorMessage = uploadError.message || 'File upload failed';
+      let hint = 'Check if Storage bucket "receipts" exists and is public';
+      
+      if (uploadError.message?.includes('not found') || uploadError.message?.includes('does not exist')) {
+        errorMessage = `Storage bucket "receipts" not found. Please create it in Supabase Dashboard → Storage.`;
+        hint = 'Create a bucket named "receipts" and make it public';
+      }
+      
       return res.status(500).json({ 
         error: 'File upload failed', 
-        details: uploadError.message,
-        hint: 'Check if Storage bucket "receipts" exists and is public'
+        details: errorMessage,
+        hint: hint,
+        code: uploadError.code
       });
     }
 
