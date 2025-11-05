@@ -88,6 +88,18 @@ const upload = multer({
   }
 });
 
+// Static files serving (uploads)
+app.get('/uploads/:filename', (req, res) => {
+  const filename = req.params.filename;
+  const filePath = path.join(uploadsDir, filename);
+  
+  if (fs.existsSync(filePath)) {
+    res.sendFile(filePath);
+  } else {
+    res.status(404).json({ error: 'File not found' });
+  }
+});
+
 // Routes
 app.get('/health', (req, res) => {
   res.json({ status: 'OK', message: 'Server is running' });
