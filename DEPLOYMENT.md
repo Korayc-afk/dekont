@@ -2,98 +2,109 @@
 
 Bu rehber, Dekont Ticket uygulamasını Plesk sunucusuna deploy etmek için adım adım talimatlar içerir.
 
-## Ön Gereksinimler
+## 📦 Dosya Yapısı (Plesk'te)
 
-1. Plesk panel erişimi
-2. Node.js desteği (Plesk'te Node.js extension aktif olmalı)
-3. SSH erişimi (önerilir)
+Deploy edildikten sonra dosyalar şu şekilde olmalı:
 
-## 1. Dosyaları Sunucuya Yükleme
+```
+/httpdocs/                    # Plesk Document Root
+├── index.html                # React build'den
+├── assets/                   # React build'den (JS, CSS)
+├── logo.png                  # Logo
+├── favicon.ico               # Favicon
+├── .htaccess                 # React Router için
+│
+├── server/                   # Backend API
+│   ├── server.js
+│   ├── package.json
+│   ├── node_modules/         # npm install sonrası
+│   ├── uploads/              # Otomatik oluşturulacak
+│   ├── database.db           # Otomatik oluşturulacak
+│   ├── .env                  # Manuel oluşturulacak
+│   └── .htaccess             # Node.js routing için
+│
+└── api/                      # API endpoint'leri (.htaccess ile yönlendirilir)
+```
 
-### FTP/SFTP ile:
-1. Tüm proje dosyalarını sunucuya yükleyin
-2. Dosya yapısı:
-   ```
-   /httpdocs/
-   ├── dist/              # React build dosyaları (build sonrası)
-   ├── server/            # Backend API
-   │   ├── server.js
-   │   ├── package.json
-   │   ├── uploads/       # Otomatik oluşturulacak
-   │   └── database.db    # Otomatik oluşturulacak
-   ├── .htaccess          # React Router için
-   └── index.html         # React build'den gelecek
-   ```
+## 🚀 Deployment Adımları
 
-## 2. Backend Kurulumu
+### 1. GitHub'dan Dosyaları İndir
 
-### SSH ile:
+**Seçenek 1: Git ile (Önerilen)**
+```bash
+cd /var/www/vhosts/yourdomain.com/httpdocs
+git clone https://github.com/Korayc-afk/dekont.git .
+```
+
+**Seçenek 2: ZIP olarak indir**
+- GitHub'dan ZIP indir
+- Plesk File Manager ile `/httpdocs/` klasörüne yükle
+- ZIP'i aç
+
+### 2. Frontend Build
+
+**Lokal bilgisayarda:**
+```bash
+npm install
+npm run build
+```
+
+**Build dosyalarını yükle:**
+- `dist/` klasöründeki tüm dosyaları `/httpdocs/` klasörüne kopyala
+- `.htaccess` dosyasının `/httpdocs/` klasöründe olduğundan emin ol
+
+### 3. Backend Kurulumu
+
+**SSH ile sunucuya bağlan:**
 ```bash
 cd /var/www/vhosts/yourdomain.com/httpdocs/server
 npm install --production
 ```
 
-### Klasör İzinleri:
+**Environment dosyası oluştur:**
 ```bash
-chmod 755 uploads/
-chmod 644 database.db  # (oluşturulduktan sonra)
+nano .env
 ```
 
-## 3. Plesk'te Node.js Uygulaması Oluşturma
+İçeriği:
+```env
+PORT=3001
+NODE_ENV=production
+```
+
+### 4. Klasör İzinleri
+
+```bash
+chmod 755 server/uploads/
+chmod 644 server/database.db  # (oluşturulduktan sonra)
+```
+
+### 5. Plesk'te Node.js Uygulaması Oluşturma
 
 1. **Plesk Panel'e giriş yapın**
 2. **"Node.js"** sekmesine gidin
 3. **"Add Node.js App"** butonuna tıklayın
 4. Ayarları yapın:
-   - **App Root**: `/httpdocs/server` (veya tam yol)
+   - **App Root**: `/httpdocs/server` (veya tam yol: `/var/www/vhosts/yourdomain.com/httpdocs/server`)
    - **Application Mode**: `production`
    - **Application Startup File**: `server.js`
    - **Node.js Version**: En son LTS versiyonu (18.x veya 20.x)
    - **Port**: `3001` (veya Plesk'in verdiği port numarası)
    - **Document Root**: `/httpdocs` (React build için)
 
-## 4. Environment Variables
+5. **"Enable Node.js"** butonuna tıklayın
 
-Plesk Node.js panelinde veya `.env` dosyasında:
-```
-PORT=3001
-NODE_ENV=production
-```
+### 6. Frontend Environment Variables
 
-## 5. Frontend Build
-
-### Lokal bilgisayarda:
-```bash
-npm run build
-```
-
-### Build dosyalarını yükleme:
-- `dist/` klasöründeki tüm dosyaları `/httpdocs/` klasörüne yükleyin
-- `.htaccess` dosyasının `/httpdocs/` klasöründe olduğundan emin olun
-
-## 6. API URL Konfigürasyonu
-
-Frontend'de API URL'ini ayarlayın:
-
-### `.env` dosyası oluşturun (root dizinde):
-```
+Plesk'te veya `.env` dosyasında:
+```env
 VITE_API_URL=/api
+VITE_ADMIN_PASSWORD=Padisah2024!Secure
 ```
 
-Veya build sırasında:
-```bash
-VITE_API_URL=/api npm run build
-```
+**Not:** Production'da mutlaka şifreyi değiştirin!
 
-## 7. .htaccess Konfigürasyonu
-
-### Root `.htaccess` (React Router için):
-Zaten oluşturuldu, `/httpdocs/.htaccess` konumunda olmalı.
-
-### Server `.htaccess`:
-`/httpdocs/server/.htaccess` dosyası zaten oluşturuldu. Plesk Node.js modülü bunu otomatik kullanır.
-
-## 8. Test
+### 7. Test
 
 1. **Backend test:**
    ```
@@ -107,47 +118,81 @@ Zaten oluşturuldu, `/httpdocs/.htaccess` konumunda olmalı.
    ```
    Ana sayfa açılmalı.
 
-3. **API test:**
+3. **Admin giriş:**
    ```
-   https://yourdomain.com/api/tickets
+   https://yourdomain.com/yönetim-giriş-secure
    ```
-   Boş array dönmeli: `[]`
 
-## 9. Sorun Giderme
+## 🔧 Sorun Giderme
 
 ### Backend çalışmıyor:
 1. Plesk Node.js panelinde logları kontrol edin
 2. Port numarasını kontrol edin
 3. `server.js` dosyasının doğru yolda olduğundan emin olun
+4. SSH ile `cd server && node server.js` çalıştırıp hata mesajlarını kontrol edin
 
 ### 404 hatası:
 1. `.htaccess` dosyasının doğru yerde olduğundan emin olun
 2. `mod_rewrite` modülünün aktif olduğundan emin olun
+3. Plesk'te "Apache modules" kontrol edin
 
 ### Dosya yükleme hatası:
-1. `uploads/` klasörünün yazılabilir olduğundan emin olun:
+1. `server/uploads/` klasörünün yazılabilir olduğundan emin olun:
    ```bash
-   chmod 755 uploads/
+   chmod 755 server/uploads/
+   chown -R httpdocs:httpdocs server/uploads/
    ```
 
 ### Database hatası:
-1. `database.db` dosyasının yazılabilir olduğundan emin olun
+1. `server/database.db` dosyasının yazılabilir olduğundan emin olun
 2. SQLite3 modülünün yüklü olduğundan emin olun
+3. İlk çalıştırmada otomatik oluşturulur
 
-## 10. Güvenlik
+### API bağlantı hatası:
+1. Backend'in çalıştığından emin olun
+2. Port numarasını kontrol edin
+3. `.htaccess` dosyasının doğru yapılandırıldığından emin olun
 
-### Önerilen ayarlar:
-1. **uploads/** klasörüne doğrudan erişimi kısıtlayın (sadece API üzerinden)
-2. **database.db** dosyasını web erişiminden koruyun
-3. CORS ayarlarını production için optimize edin
-4. Rate limiting ekleyin (opsiyonel)
+## 📁 Önemli Dosyalar
 
-## 11. Otomatik Restart
+### Yüklenmesi Gerekenler:
+- ✅ Tüm `src/` klasörü
+- ✅ `server/` klasörü (node_modules hariç)
+- ✅ `package.json` dosyaları
+- ✅ `.htaccess` dosyaları
+- ✅ `public/` klasörü
+- ✅ Build sonrası `dist/` içeriği
 
-Plesk Node.js uygulaması otomatik olarak başlatılır. Manuel restart için:
-- Plesk Node.js panelinde **"Restart App"** butonunu kullanın
+### Yüklenmemesi Gerekenler (gitignore):
+- ❌ `node_modules/`
+- ❌ `dist/` (build sonrası oluşturulur)
+- ❌ `.env` dosyaları
+- ❌ `server/uploads/`
+- ❌ `server/database.db`
 
-## 12. Backup
+## 🔄 Güncelleme
+
+### Yeni değişiklikleri deploy etmek:
+
+1. **Git ile:**
+```bash
+cd /var/www/vhosts/yourdomain.com/httpdocs
+git pull origin main
+cd server
+npm install --production
+```
+
+2. **Frontend rebuild:**
+```bash
+# Lokal bilgisayarda
+npm run build
+# dist/ klasörünü sunucuya yükle
+```
+
+3. **Backend restart:**
+- Plesk Node.js panelinde "Restart App" butonuna tıklayın
+
+## 💾 Backup
 
 ### Önemli dosyalar:
 - `server/database.db` - Veritabanı
@@ -158,10 +203,26 @@ Plesk Node.js uygulaması otomatik olarak başlatılır. Manuel restart için:
 tar -czf backup-$(date +%Y%m%d).tar.gz server/database.db server/uploads/
 ```
 
-## Notlar
+## 🔒 Güvenlik Notları
 
-- İlk çalıştırmada `database.db` ve `uploads/` klasörü otomatik oluşturulur
-- SQLite veritabanı tek dosya olarak saklanır, backup'ı kolaydır
-- Dosya boyutu limiti: 5MB (backend'de ayarlanmış)
-- İzin verilen dosya tipleri: JPG, PNG, WEBP, PDF
+1. **Admin şifresini değiştirin:**
+   - `.env` dosyasında `VITE_ADMIN_PASSWORD` değerini değiştirin
+   - Frontend'i yeniden build edin
 
+2. **HTTPS kullanın:**
+   - Plesk'te SSL sertifikası aktif edin
+
+3. **Dosya izinleri:**
+   - `server/uploads/` klasörüne sadece backend erişebilmeli
+   - `database.db` dosyası web erişiminden korunmalı
+
+4. **Environment variables:**
+   - `.env` dosyalarını asla commit etmeyin
+   - Production'da güçlü şifreler kullanın
+
+## 📞 Destek
+
+Sorun yaşarsanız:
+1. Plesk Node.js loglarını kontrol edin
+2. Browser console'da hataları kontrol edin
+3. Network tab'da API isteklerini kontrol edin
