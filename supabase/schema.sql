@@ -37,20 +37,21 @@ $$ language 'plpgsql';
 CREATE TRIGGER update_tickets_updated_at BEFORE UPDATE ON tickets
 FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
--- Row Level Security (RLS) - Herkes okuyabilir, sadece API key ile yazabilir
+-- Row Level Security (RLS) - Service role key ile bypass edilir
 ALTER TABLE tickets ENABLE ROW LEVEL SECURITY;
 
 -- Policy: Herkes okuyabilir (anon key ile)
 CREATE POLICY "Enable read access for all users" ON tickets
   FOR SELECT USING (true);
 
--- Policy: Sadece service role ile yazabilir (API key ile)
-CREATE POLICY "Enable insert for service role" ON tickets
+-- Policy: Herkes yazabilir (service role key ile çalışır, RLS bypass edilir)
+-- Service role key kullanıldığında RLS otomatik bypass edilir
+CREATE POLICY "Enable insert for authenticated users" ON tickets
   FOR INSERT WITH CHECK (true);
 
-CREATE POLICY "Enable update for service role" ON tickets
+CREATE POLICY "Enable update for authenticated users" ON tickets
   FOR UPDATE USING (true);
 
-CREATE POLICY "Enable delete for service role" ON tickets
+CREATE POLICY "Enable delete for authenticated users" ON tickets
   FOR DELETE USING (true);
 

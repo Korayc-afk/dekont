@@ -3,7 +3,6 @@ const express = require('express');
 const cors = require('cors');
 const multer = require('multer');
 const { createClient } = require('@supabase/supabase-js');
-const FormData = require('form-data');
 
 const app = express();
 
@@ -51,24 +50,29 @@ async function uploadToSupabase(file, filename) {
 
   const bucketName = 'receipts';
   
-  const { data, error } = await supabase.storage
-    .from(bucketName)
-    .upload(filename, file.buffer, {
-      contentType: file.mimetype || 'application/octet-stream',
-      upsert: false
-    });
+  try {
+    const { data, error } = await supabase.storage
+      .from(bucketName)
+      .upload(filename, file.buffer, {
+        contentType: file.mimetype || 'application/octet-stream',
+        upsert: false
+      });
 
-  if (error) {
-    console.error('Supabase upload error:', error);
-    throw new Error(`Storage error: ${error.message}`);
+    if (error) {
+      console.error('Supabase upload error:', error);
+      throw new Error(`Storage error: ${error.message}`);
+    }
+
+    // Public URL al
+    const { data: urlData } = supabase.storage
+      .from(bucketName)
+      .getPublicUrl(filename);
+
+    return urlData.publicUrl;
+  } catch (error) {
+    console.error('Upload function error:', error);
+    throw error;
   }
-
-  // Public URL al
-  const { data: urlData } = supabase.storage
-    .from(bucketName)
-    .getPublicUrl(filename);
-
-  return urlData.publicUrl;
 }
 
 // Helper: Delete file from Supabase Storage
@@ -372,9 +376,19 @@ module.exports = async (req, res) => {
       return res.status(200).end();
     }
     
+    // Supabase kontrolü
+    if (!supabase && pathToUse !== '/health') {
+      console.error('Supabase not initialized. URL:', supabaseUrl ? 'SET' : 'MISSING', 'Key:', supabaseServiceKey ? 'SET' : 'MISSING');
+    }
+    
     return app(req, res);
   } catch (error) {
     console.error('Serverless function error:', error);
-    return res.status(500).json({ error: 'Internal server error', message: error.message });
+    console.error('Error stack:', error.stack);
+    return res.status(500).json({ 
+      error: 'Internal server error', 
+      message: error.message,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
   }
 };
