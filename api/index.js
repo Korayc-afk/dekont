@@ -1,10 +1,9 @@
-// Vercel Serverless Functions için API
+// Vercel Serverless Functions için API - Supabase ile
 const express = require('express');
 const cors = require('cors');
-const path = require('path');
-const fs = require('fs');
 const multer = require('multer');
-const sqlite3 = require('sqlite3').verbose();
+const { createClient } = require('@supabase/supabase-js');
+const FormData = require('form-data');
 
 const app = express();
 
@@ -17,87 +16,22 @@ app.use(cors({
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// Vercel'de uploads klasörü için /tmp kullan
-const uploadsDir = (process.env.VERCEL || process.env.NOW) ? '/tmp/uploads' : path.join(__dirname, '../server/uploads');
-try {
-  if (!fs.existsSync(uploadsDir)) {
-    fs.mkdirSync(uploadsDir, { recursive: true });
-  }
-} catch (err) {
-  console.error('Error creating uploads directory:', err);
+// Supabase initialization
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+let supabase = null;
+
+if (supabaseUrl && supabaseServiceKey) {
+  supabase = createClient(supabaseUrl, supabaseServiceKey);
+  console.log('Supabase initialized');
+} else {
+  console.warn('Supabase credentials not found. API will not work properly.');
 }
 
-// Database path (Vercel'de /tmp kullan)
-const dbPath = (process.env.VERCEL || process.env.NOW)
-  ? '/tmp/database.db' 
-  : path.join(__dirname, '../server/database.db');
-
-// Database connection - lazy initialization
-let db = null;
-
-const getDatabase = () => {
-  if (!db) {
-    try {
-      db = new sqlite3.Database(dbPath, (err) => {
-        if (err) {
-          console.error('Database connection error:', err.message);
-          throw err;
-        } else {
-          console.log('Connected to SQLite database:', dbPath);
-          initializeDatabase();
-        }
-      });
-    } catch (error) {
-      console.error('Failed to create database connection:', error);
-      throw error;
-    }
-  }
-  return db;
-};
-
-// Initialize database tables
-function initializeDatabase() {
-  const database = getDatabase();
-  database.serialize(() => {
-    database.run(`CREATE TABLE IF NOT EXISTS tickets (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      userId TEXT NOT NULL,
-      recipientName TEXT NOT NULL,
-      recipientIban TEXT NOT NULL,
-      investmentMethod TEXT NOT NULL,
-      investmentAmount REAL NOT NULL,
-      investmentDateTime TEXT NOT NULL,
-      receiptFileName TEXT NOT NULL,
-      receiptOriginalName TEXT NOT NULL,
-      receiptMimeType TEXT NOT NULL,
-      status TEXT DEFAULT 'pending',
-      adminNote TEXT DEFAULT '',
-      createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
-      updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP
-    )`, (err) => {
-      if (err) {
-        console.error('Error creating tickets table:', err.message);
-      } else {
-        console.log('Tickets table ready');
-      }
-    });
-  });
-}
-
-// Multer configuration
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, uploadsDir);
-  },
-  filename: (req, file, cb) => {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    const ext = path.extname(file.originalname);
-    cb(null, `receipt-${uniqueSuffix}${ext}`);
-  }
-});
-
+// Multer configuration - memory storage (Supabase'e yüklenecek)
 const upload = multer({
-  storage: storage,
+  storage: multer.memoryStorage(),
   limits: { fileSize: 5 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
     const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'application/pdf'];
@@ -109,129 +43,162 @@ const upload = multer({
   }
 });
 
-// Static files serving (uploads)
-app.get('/uploads/:filename', (req, res) => {
-  try {
-    const filename = req.params.filename;
-    const filePath = path.join(uploadsDir, filename);
-    
-    if (fs.existsSync(filePath)) {
-      res.sendFile(filePath);
-    } else {
-      res.status(404).json({ error: 'File not found' });
-    }
-  } catch (error) {
-    console.error('Error serving file:', error);
-    res.status(500).json({ error: 'Error serving file' });
+// Helper: Upload file to Supabase Storage
+async function uploadToSupabase(file, filename) {
+  if (!supabase) {
+    throw new Error('Supabase not configured');
   }
-});
+
+  const bucketName = 'receipts';
+  
+  const { data, error } = await supabase.storage
+    .from(bucketName)
+    .upload(filename, file.buffer, {
+      contentType: file.mimetype || 'application/octet-stream',
+      upsert: false
+    });
+
+  if (error) {
+    console.error('Supabase upload error:', error);
+    throw new Error(`Storage error: ${error.message}`);
+  }
+
+  // Public URL al
+  const { data: urlData } = supabase.storage
+    .from(bucketName)
+    .getPublicUrl(filename);
+
+  return urlData.publicUrl;
+}
+
+// Helper: Delete file from Supabase Storage
+async function deleteFromSupabase(filename) {
+  if (!supabase) {
+    return;
+  }
+
+  const bucketName = 'receipts';
+  
+  // Path'den filename çıkar (receipts/xxx.jpg -> xxx.jpg)
+  const filePath = filename.includes('/') ? filename.split('/').pop() : filename;
+
+  await supabase.storage
+    .from(bucketName)
+    .remove([filePath]);
+}
 
 // Routes
 app.get('/health', (req, res) => {
-  res.json({ status: 'OK', message: 'Server is running', vercel: !!process.env.VERCEL });
+  res.json({ 
+    status: 'OK', 
+    message: 'Server is running',
+    supabase: !!supabase
+  });
 });
 
-app.get('/tickets', (req, res) => {
+app.get('/tickets', async (req, res) => {
   try {
+    if (!supabase) {
+      return res.status(500).json({ error: 'Supabase not configured' });
+    }
+
     const { status, search, userId } = req.query;
-    const database = getDatabase();
     
-    let query = 'SELECT * FROM tickets WHERE 1=1';
-    const params = [];
-    
+    let query = supabase.from('tickets').select('*');
+
     if (status && status !== 'all') {
-      query += ' AND status = ?';
-      params.push(status);
+      query = query.eq('status', status);
     }
-    
+
     if (userId) {
-      query += ' AND userId = ?';
-      params.push(userId);
+      query = query.eq('userId', userId);
     }
-    
+
     if (search) {
-      query += ' AND (recipientName LIKE ? OR recipientIban LIKE ? OR investmentMethod LIKE ?)';
-      const searchTerm = `%${search}%`;
-      params.push(searchTerm, searchTerm, searchTerm);
+      query = query.or(`recipientName.ilike.%${search}%,recipientIban.ilike.%${search}%,investmentMethod.ilike.%${search}%`);
     }
-    
-    query += ' ORDER BY createdAt DESC';
-    
-    database.all(query, params, (err, rows) => {
-      if (err) {
-        console.error('Error fetching tickets:', err);
-        return res.status(500).json({ error: 'Database error', details: err.message });
-      }
-      
-      const tickets = rows.map(ticket => ({
-        ...ticket,
-        receiptUrl: `/api/uploads/${ticket.receiptFileName}`
-      }));
-      
-      res.json(tickets);
-    });
+
+    query = query.order('createdAt', { ascending: false });
+
+    const { data, error } = await query;
+
+    if (error) {
+      console.error('Error fetching tickets:', error);
+      return res.status(500).json({ error: 'Database error', details: error.message });
+    }
+
+    res.json(data || []);
   } catch (error) {
     console.error('Error in /tickets:', error);
     res.status(500).json({ error: 'Server error', details: error.message });
   }
 });
 
-app.get('/tickets/:id', (req, res) => {
+app.get('/tickets/:id', async (req, res) => {
   try {
+    if (!supabase) {
+      return res.status(500).json({ error: 'Supabase not configured' });
+    }
+
     const { id } = req.params;
-    const database = getDatabase();
-    
-    database.get('SELECT * FROM tickets WHERE id = ?', [id], (err, row) => {
-      if (err) {
-        console.error('Error fetching ticket:', err);
-        return res.status(500).json({ error: 'Database error', details: err.message });
-      }
-      
-      if (!row) {
+
+    const { data, error } = await supabase
+      .from('tickets')
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    if (error) {
+      if (error.code === 'PGRST116') {
         return res.status(404).json({ error: 'Ticket not found' });
       }
-      
-      res.json({
-        ...row,
-        receiptUrl: `/api/uploads/${row.receiptFileName}`
-      });
-    });
+      console.error('Error fetching ticket:', error);
+      return res.status(500).json({ error: 'Database error', details: error.message });
+    }
+
+    res.json(data);
   } catch (error) {
     console.error('Error in /tickets/:id:', error);
     res.status(500).json({ error: 'Server error', details: error.message });
   }
 });
 
-app.get('/tickets/user/:userId', (req, res) => {
+app.get('/tickets/user/:userId', async (req, res) => {
   try {
+    if (!supabase) {
+      return res.status(500).json({ error: 'Supabase not configured' });
+    }
+
     const { userId } = req.params;
-    const database = getDatabase();
-    
-    database.all('SELECT * FROM tickets WHERE userId = ? ORDER BY createdAt DESC', [userId], (err, rows) => {
-      if (err) {
-        console.error('Error fetching user tickets:', err);
-        return res.status(500).json({ error: 'Database error', details: err.message });
-      }
-      
-      const tickets = rows.map(ticket => ({
-        ...ticket,
-        receiptUrl: `/api/uploads/${ticket.receiptFileName}`
-      }));
-      
-      res.json(tickets);
-    });
+
+    const { data, error } = await supabase
+      .from('tickets')
+      .select('*')
+      .eq('userId', userId)
+      .order('createdAt', { ascending: false });
+
+    if (error) {
+      console.error('Error fetching user tickets:', error);
+      return res.status(500).json({ error: 'Database error', details: error.message });
+    }
+
+    res.json(data || []);
   } catch (error) {
     console.error('Error in /tickets/user/:userId:', error);
     res.status(500).json({ error: 'Server error', details: error.message });
   }
 });
 
-app.post('/tickets', upload.single('receipt'), (req, res) => {
+app.post('/tickets', upload.single('receipt'), async (req, res) => {
   try {
+    if (!supabase) {
+      return res.status(500).json({ error: 'Supabase not configured' });
+    }
+
     if (!req.file) {
       return res.status(400).json({ error: 'Receipt file is required' });
     }
-    
+
     const {
       userId,
       recipientName,
@@ -240,159 +207,136 @@ app.post('/tickets', upload.single('receipt'), (req, res) => {
       investmentAmount,
       investmentDateTime
     } = req.body;
-    
+
     if (!userId || !recipientName || !recipientIban || !investmentMethod || !investmentAmount || !investmentDateTime) {
-      if (req.file && fs.existsSync(req.file.path)) {
-        fs.unlinkSync(req.file.path);
-      }
       return res.status(400).json({ error: 'All fields are required' });
     }
-    
-    const database = getDatabase();
-    const ticket = {
+
+    // Dosyayı Supabase Storage'a yükle
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    const ext = req.file.originalname.split('.').pop();
+    const filename = `receipt-${uniqueSuffix}.${ext}`;
+
+    let receiptUrl = '';
+    try {
+      receiptUrl = await uploadToSupabase(req.file, filename);
+    } catch (uploadError) {
+      console.error('Upload error:', uploadError);
+      return res.status(500).json({ error: 'File upload failed', details: uploadError.message });
+    }
+
+    // Database'e kaydet
+    const ticketData = {
       userId: userId.trim(),
       recipientName,
       recipientIban,
       investmentMethod,
       investmentAmount: parseFloat(investmentAmount),
       investmentDateTime,
-      receiptFileName: req.file.filename,
+      receiptFileName: filename,
       receiptOriginalName: req.file.originalname,
       receiptMimeType: req.file.mimetype,
+      receiptUrl: receiptUrl,
       status: 'pending',
       adminNote: ''
     };
-    
-    database.run(
-      `INSERT INTO tickets (userId, recipientName, recipientIban, investmentMethod, investmentAmount, investmentDateTime, receiptFileName, receiptOriginalName, receiptMimeType, status, adminNote)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        ticket.userId,
-        ticket.recipientName,
-        ticket.recipientIban,
-        ticket.investmentMethod,
-        ticket.investmentAmount,
-        ticket.investmentDateTime,
-        ticket.receiptFileName,
-        ticket.receiptOriginalName,
-        ticket.receiptMimeType,
-        ticket.status,
-        ticket.adminNote
-      ],
-      function(err) {
-        if (err) {
-          console.error('Error creating ticket:', err);
-          if (req.file && fs.existsSync(req.file.path)) {
-            fs.unlinkSync(req.file.path);
-          }
-          return res.status(500).json({ error: 'Database error', details: err.message });
-        }
-        
-        database.get('SELECT * FROM tickets WHERE id = ?', [this.lastID], (err, row) => {
-          if (err) {
-            return res.status(500).json({ error: 'Database error', details: err.message });
-          }
-          
-          res.status(201).json({
-            ...row,
-            receiptUrl: `/api/uploads/${row.receiptFileName}`
-          });
-        });
-      }
-    );
+
+    const { data, error } = await supabase
+      .from('tickets')
+      .insert([ticketData])
+      .select()
+      .single();
+
+    if (error) {
+      // Upload başarılı ama DB hatası - dosyayı sil
+      await deleteFromSupabase(filename);
+      console.error('Error creating ticket:', error);
+      return res.status(500).json({ error: 'Database error', details: error.message });
+    }
+
+    res.status(201).json(data);
   } catch (error) {
     console.error('Error processing ticket:', error);
-    if (req.file && fs.existsSync(req.file.path)) {
-      fs.unlinkSync(req.file.path);
-    }
     res.status(500).json({ error: 'Server error', details: error.message });
   }
 });
 
-app.patch('/tickets/:id', (req, res) => {
+app.patch('/tickets/:id', async (req, res) => {
   try {
+    if (!supabase) {
+      return res.status(500).json({ error: 'Supabase not configured' });
+    }
+
     const { id } = req.params;
     const { status, adminNote } = req.body;
-    const database = getDatabase();
-    
-    const updates = [];
-    const params = [];
-    
-    if (status) {
-      updates.push('status = ?');
-      params.push(status);
-    }
-    
-    if (adminNote !== undefined) {
-      updates.push('adminNote = ?');
-      params.push(adminNote);
-    }
-    
-    if (updates.length === 0) {
+
+    const updates = {};
+    if (status) updates.status = status;
+    if (adminNote !== undefined) updates.adminNote = adminNote;
+
+    if (Object.keys(updates).length === 0) {
       return res.status(400).json({ error: 'No valid fields to update' });
     }
-    
-    updates.push('updatedAt = CURRENT_TIMESTAMP');
-    params.push(id);
-    
-    const query = `UPDATE tickets SET ${updates.join(', ')} WHERE id = ?`;
-    
-    database.run(query, params, function(err) {
-      if (err) {
-        console.error('Error updating ticket:', err);
-        return res.status(500).json({ error: 'Database error', details: err.message });
-      }
-      
-      if (this.changes === 0) {
-        return res.status(404).json({ error: 'Ticket not found' });
-      }
-      
-      database.get('SELECT * FROM tickets WHERE id = ?', [id], (err, row) => {
-        if (err) {
-          return res.status(500).json({ error: 'Database error', details: err.message });
-        }
-        
-        res.json({
-          ...row,
-          receiptUrl: `/api/uploads/${row.receiptFileName}`
-        });
-      });
-    });
+
+    const { data, error } = await supabase
+      .from('tickets')
+      .update(updates)
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Error updating ticket:', error);
+      return res.status(500).json({ error: 'Database error', details: error.message });
+    }
+
+    if (!data) {
+      return res.status(404).json({ error: 'Ticket not found' });
+    }
+
+    res.json(data);
   } catch (error) {
     console.error('Error in PATCH /tickets/:id:', error);
     res.status(500).json({ error: 'Server error', details: error.message });
   }
 });
 
-app.delete('/tickets/:id', (req, res) => {
+app.delete('/tickets/:id', async (req, res) => {
   try {
+    if (!supabase) {
+      return res.status(500).json({ error: 'Supabase not configured' });
+    }
+
     const { id } = req.params;
-    const database = getDatabase();
-    
-    database.get('SELECT receiptFileName FROM tickets WHERE id = ?', [id], (err, row) => {
-      if (err) {
-        console.error('Error fetching ticket:', err);
-        return res.status(500).json({ error: 'Database error', details: err.message });
-      }
-      
-      if (!row) {
-        return res.status(404).json({ error: 'Ticket not found' });
-      }
-      
-      const filePath = path.join(uploadsDir, row.receiptFileName);
-      if (fs.existsSync(filePath)) {
-        fs.unlinkSync(filePath);
-      }
-      
-      database.run('DELETE FROM tickets WHERE id = ?', [id], function(err) {
-        if (err) {
-          console.error('Error deleting ticket:', err);
-          return res.status(500).json({ error: 'Database error', details: err.message });
-        }
-        
-        res.json({ message: 'Ticket deleted successfully' });
-      });
-    });
+
+    // Önce ticket'ı bul
+    const { data: ticket, error: fetchError } = await supabase
+      .from('tickets')
+      .select('receiptFileName')
+      .eq('id', id)
+      .single();
+
+    if (fetchError || !ticket) {
+      return res.status(404).json({ error: 'Ticket not found' });
+    }
+
+    // Dosyayı sil
+    if (ticket.receiptFileName) {
+      await deleteFromSupabase(ticket.receiptFileName);
+    }
+
+    // Database'den sil
+    const { error } = await supabase
+      .from('tickets')
+      .delete()
+      .eq('id', id);
+
+    if (error) {
+      console.error('Error deleting ticket:', error);
+      return res.status(500).json({ error: 'Database error', details: error.message });
+    }
+
+    res.json({ message: 'Ticket deleted successfully' });
   } catch (error) {
     console.error('Error in DELETE /tickets/:id:', error);
     res.status(500).json({ error: 'Server error', details: error.message });
@@ -431,6 +375,6 @@ module.exports = async (req, res) => {
     return app(req, res);
   } catch (error) {
     console.error('Serverless function error:', error);
-    return res.status(500).json({ error: 'Internal server error', message: error.message, stack: error.stack });
+    return res.status(500).json({ error: 'Internal server error', message: error.message });
   }
 };
