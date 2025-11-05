@@ -1,8 +1,8 @@
-// Vercel Serverless Functions için API - Supabase ile
-const express = require('express');
-const cors = require('cors');
-const multer = require('multer');
-const { createClient } = require('@supabase/supabase-js');
+// Vercel Serverless Functions için API - Supabase ile (ES Modules)
+import express from 'express';
+import cors from 'cors';
+import multer from 'multer';
+import { createClient } from '@supabase/supabase-js';
 
 const app = express();
 
@@ -448,7 +448,7 @@ app.use((error, req, res, next) => {
 });
 
 // Vercel serverless function handler
-module.exports = async (req, res) => {
+export default async (req, res) => {
   try {
     // Path'i düzenle (/api/health -> /health)
     const originalUrl = req.url;
