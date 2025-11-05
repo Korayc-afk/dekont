@@ -1,6 +1,4 @@
-// Vercel Serverless Functions için API wrapper
-// Backend server.js'i serverless function olarak çalıştırır
-
+// Vercel Serverless Functions için API
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
@@ -11,34 +9,57 @@ const sqlite3 = require('sqlite3').verbose();
 const app = express();
 
 // Middleware
-app.use(cors());
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(cors({
+  origin: '*',
+  methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Vercel'de uploads klasörü için /tmp kullan
-const uploadsDir = process.env.VERCEL ? '/tmp/uploads' : path.join(__dirname, '../server/uploads');
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir, { recursive: true });
+const uploadsDir = (process.env.VERCEL || process.env.NOW) ? '/tmp/uploads' : path.join(__dirname, '../server/uploads');
+try {
+  if (!fs.existsSync(uploadsDir)) {
+    fs.mkdirSync(uploadsDir, { recursive: true });
+  }
+} catch (err) {
+  console.error('Error creating uploads directory:', err);
 }
 
 // Database path (Vercel'de /tmp kullan)
-const dbPath = process.env.VERCEL 
+const dbPath = (process.env.VERCEL || process.env.NOW)
   ? '/tmp/database.db' 
   : path.join(__dirname, '../server/database.db');
 
-const db = new sqlite3.Database(dbPath, (err) => {
-  if (err) {
-    console.error('Database connection error:', err.message);
-  } else {
-    console.log('Connected to SQLite database');
-    initializeDatabase();
+// Database connection - lazy initialization
+let db = null;
+
+const getDatabase = () => {
+  if (!db) {
+    try {
+      db = new sqlite3.Database(dbPath, (err) => {
+        if (err) {
+          console.error('Database connection error:', err.message);
+          throw err;
+        } else {
+          console.log('Connected to SQLite database:', dbPath);
+          initializeDatabase();
+        }
+      });
+    } catch (error) {
+      console.error('Failed to create database connection:', error);
+      throw error;
+    }
   }
-});
+  return db;
+};
 
 // Initialize database tables
 function initializeDatabase() {
-  db.serialize(() => {
-    db.run(`CREATE TABLE IF NOT EXISTS tickets (
+  const database = getDatabase();
+  database.serialize(() => {
+    database.run(`CREATE TABLE IF NOT EXISTS tickets (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       userId TEXT NOT NULL,
       recipientName TEXT NOT NULL,
@@ -90,96 +111,119 @@ const upload = multer({
 
 // Static files serving (uploads)
 app.get('/uploads/:filename', (req, res) => {
-  const filename = req.params.filename;
-  const filePath = path.join(uploadsDir, filename);
-  
-  if (fs.existsSync(filePath)) {
-    res.sendFile(filePath);
-  } else {
-    res.status(404).json({ error: 'File not found' });
+  try {
+    const filename = req.params.filename;
+    const filePath = path.join(uploadsDir, filename);
+    
+    if (fs.existsSync(filePath)) {
+      res.sendFile(filePath);
+    } else {
+      res.status(404).json({ error: 'File not found' });
+    }
+  } catch (error) {
+    console.error('Error serving file:', error);
+    res.status(500).json({ error: 'Error serving file' });
   }
 });
 
 // Routes
 app.get('/health', (req, res) => {
-  res.json({ status: 'OK', message: 'Server is running' });
+  res.json({ status: 'OK', message: 'Server is running', vercel: !!process.env.VERCEL });
 });
 
 app.get('/tickets', (req, res) => {
-  const { status, search, userId } = req.query;
-  
-  let query = 'SELECT * FROM tickets WHERE 1=1';
-  const params = [];
-  
-  if (status && status !== 'all') {
-    query += ' AND status = ?';
-    params.push(status);
-  }
-  
-  if (userId) {
-    query += ' AND userId = ?';
-    params.push(userId);
-  }
-  
-  if (search) {
-    query += ' AND (recipientName LIKE ? OR recipientIban LIKE ? OR investmentMethod LIKE ?)';
-    const searchTerm = `%${search}%`;
-    params.push(searchTerm, searchTerm, searchTerm);
-  }
-  
-  query += ' ORDER BY createdAt DESC';
-  
-  db.all(query, params, (err, rows) => {
-    if (err) {
-      console.error('Error fetching tickets:', err);
-      return res.status(500).json({ error: 'Database error' });
+  try {
+    const { status, search, userId } = req.query;
+    const database = getDatabase();
+    
+    let query = 'SELECT * FROM tickets WHERE 1=1';
+    const params = [];
+    
+    if (status && status !== 'all') {
+      query += ' AND status = ?';
+      params.push(status);
     }
     
-    const tickets = rows.map(ticket => ({
-      ...ticket,
-      receiptUrl: `/api/uploads/${ticket.receiptFileName}`
-    }));
+    if (userId) {
+      query += ' AND userId = ?';
+      params.push(userId);
+    }
     
-    res.json(tickets);
-  });
+    if (search) {
+      query += ' AND (recipientName LIKE ? OR recipientIban LIKE ? OR investmentMethod LIKE ?)';
+      const searchTerm = `%${search}%`;
+      params.push(searchTerm, searchTerm, searchTerm);
+    }
+    
+    query += ' ORDER BY createdAt DESC';
+    
+    database.all(query, params, (err, rows) => {
+      if (err) {
+        console.error('Error fetching tickets:', err);
+        return res.status(500).json({ error: 'Database error', details: err.message });
+      }
+      
+      const tickets = rows.map(ticket => ({
+        ...ticket,
+        receiptUrl: `/api/uploads/${ticket.receiptFileName}`
+      }));
+      
+      res.json(tickets);
+    });
+  } catch (error) {
+    console.error('Error in /tickets:', error);
+    res.status(500).json({ error: 'Server error', details: error.message });
+  }
 });
 
 app.get('/tickets/:id', (req, res) => {
-  const { id } = req.params;
-  
-  db.get('SELECT * FROM tickets WHERE id = ?', [id], (err, row) => {
-    if (err) {
-      console.error('Error fetching ticket:', err);
-      return res.status(500).json({ error: 'Database error' });
-    }
+  try {
+    const { id } = req.params;
+    const database = getDatabase();
     
-    if (!row) {
-      return res.status(404).json({ error: 'Ticket not found' });
-    }
-    
-    res.json({
-      ...row,
-      receiptUrl: `/api/uploads/${row.receiptFileName}`
+    database.get('SELECT * FROM tickets WHERE id = ?', [id], (err, row) => {
+      if (err) {
+        console.error('Error fetching ticket:', err);
+        return res.status(500).json({ error: 'Database error', details: err.message });
+      }
+      
+      if (!row) {
+        return res.status(404).json({ error: 'Ticket not found' });
+      }
+      
+      res.json({
+        ...row,
+        receiptUrl: `/api/uploads/${row.receiptFileName}`
+      });
     });
-  });
+  } catch (error) {
+    console.error('Error in /tickets/:id:', error);
+    res.status(500).json({ error: 'Server error', details: error.message });
+  }
 });
 
 app.get('/tickets/user/:userId', (req, res) => {
-  const { userId } = req.params;
-  
-  db.all('SELECT * FROM tickets WHERE userId = ? ORDER BY createdAt DESC', [userId], (err, rows) => {
-    if (err) {
-      console.error('Error fetching user tickets:', err);
-      return res.status(500).json({ error: 'Database error' });
-    }
+  try {
+    const { userId } = req.params;
+    const database = getDatabase();
     
-    const tickets = rows.map(ticket => ({
-      ...ticket,
-      receiptUrl: `/api/uploads/${ticket.receiptFileName}`
-    }));
-    
-    res.json(tickets);
-  });
+    database.all('SELECT * FROM tickets WHERE userId = ? ORDER BY createdAt DESC', [userId], (err, rows) => {
+      if (err) {
+        console.error('Error fetching user tickets:', err);
+        return res.status(500).json({ error: 'Database error', details: err.message });
+      }
+      
+      const tickets = rows.map(ticket => ({
+        ...ticket,
+        receiptUrl: `/api/uploads/${ticket.receiptFileName}`
+      }));
+      
+      res.json(tickets);
+    });
+  } catch (error) {
+    console.error('Error in /tickets/user/:userId:', error);
+    res.status(500).json({ error: 'Server error', details: error.message });
+  }
 });
 
 app.post('/tickets', upload.single('receipt'), (req, res) => {
@@ -204,6 +248,7 @@ app.post('/tickets', upload.single('receipt'), (req, res) => {
       return res.status(400).json({ error: 'All fields are required' });
     }
     
+    const database = getDatabase();
     const ticket = {
       userId: userId.trim(),
       recipientName,
@@ -218,7 +263,7 @@ app.post('/tickets', upload.single('receipt'), (req, res) => {
       adminNote: ''
     };
     
-    db.run(
+    database.run(
       `INSERT INTO tickets (userId, recipientName, recipientIban, investmentMethod, investmentAmount, investmentDateTime, receiptFileName, receiptOriginalName, receiptMimeType, status, adminNote)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
@@ -240,12 +285,12 @@ app.post('/tickets', upload.single('receipt'), (req, res) => {
           if (req.file && fs.existsSync(req.file.path)) {
             fs.unlinkSync(req.file.path);
           }
-          return res.status(500).json({ error: 'Database error' });
+          return res.status(500).json({ error: 'Database error', details: err.message });
         }
         
-        db.get('SELECT * FROM tickets WHERE id = ?', [this.lastID], (err, row) => {
+        database.get('SELECT * FROM tickets WHERE id = ?', [this.lastID], (err, row) => {
           if (err) {
-            return res.status(500).json({ error: 'Database error' });
+            return res.status(500).json({ error: 'Database error', details: err.message });
           }
           
           res.status(201).json({
@@ -260,96 +305,132 @@ app.post('/tickets', upload.single('receipt'), (req, res) => {
     if (req.file && fs.existsSync(req.file.path)) {
       fs.unlinkSync(req.file.path);
     }
-    res.status(500).json({ error: 'Server error' });
+    res.status(500).json({ error: 'Server error', details: error.message });
   }
 });
 
 app.patch('/tickets/:id', (req, res) => {
-  const { id } = req.params;
-  const { status, adminNote } = req.body;
-  
-  const updates = [];
-  const params = [];
-  
-  if (status) {
-    updates.push('status = ?');
-    params.push(status);
-  }
-  
-  if (adminNote !== undefined) {
-    updates.push('adminNote = ?');
-    params.push(adminNote);
-  }
-  
-  if (updates.length === 0) {
-    return res.status(400).json({ error: 'No valid fields to update' });
-  }
-  
-  updates.push('updatedAt = CURRENT_TIMESTAMP');
-  params.push(id);
-  
-  const query = `UPDATE tickets SET ${updates.join(', ')} WHERE id = ?`;
-  
-  db.run(query, params, function(err) {
-    if (err) {
-      console.error('Error updating ticket:', err);
-      return res.status(500).json({ error: 'Database error' });
+  try {
+    const { id } = req.params;
+    const { status, adminNote } = req.body;
+    const database = getDatabase();
+    
+    const updates = [];
+    const params = [];
+    
+    if (status) {
+      updates.push('status = ?');
+      params.push(status);
     }
     
-    if (this.changes === 0) {
-      return res.status(404).json({ error: 'Ticket not found' });
+    if (adminNote !== undefined) {
+      updates.push('adminNote = ?');
+      params.push(adminNote);
     }
     
-    db.get('SELECT * FROM tickets WHERE id = ?', [id], (err, row) => {
+    if (updates.length === 0) {
+      return res.status(400).json({ error: 'No valid fields to update' });
+    }
+    
+    updates.push('updatedAt = CURRENT_TIMESTAMP');
+    params.push(id);
+    
+    const query = `UPDATE tickets SET ${updates.join(', ')} WHERE id = ?`;
+    
+    database.run(query, params, function(err) {
       if (err) {
-        return res.status(500).json({ error: 'Database error' });
+        console.error('Error updating ticket:', err);
+        return res.status(500).json({ error: 'Database error', details: err.message });
       }
       
-      res.json({
-        ...row,
-        receiptUrl: `/api/uploads/${row.receiptFileName}`
+      if (this.changes === 0) {
+        return res.status(404).json({ error: 'Ticket not found' });
+      }
+      
+      database.get('SELECT * FROM tickets WHERE id = ?', [id], (err, row) => {
+        if (err) {
+          return res.status(500).json({ error: 'Database error', details: err.message });
+        }
+        
+        res.json({
+          ...row,
+          receiptUrl: `/api/uploads/${row.receiptFileName}`
+        });
       });
     });
-  });
+  } catch (error) {
+    console.error('Error in PATCH /tickets/:id:', error);
+    res.status(500).json({ error: 'Server error', details: error.message });
+  }
 });
 
 app.delete('/tickets/:id', (req, res) => {
-  const { id } = req.params;
-  
-  db.get('SELECT receiptFileName FROM tickets WHERE id = ?', [id], (err, row) => {
-    if (err) {
-      console.error('Error fetching ticket:', err);
-      return res.status(500).json({ error: 'Database error' });
-    }
+  try {
+    const { id } = req.params;
+    const database = getDatabase();
     
-    if (!row) {
-      return res.status(404).json({ error: 'Ticket not found' });
-    }
-    
-    const filePath = path.join(uploadsDir, row.receiptFileName);
-    if (fs.existsSync(filePath)) {
-      fs.unlinkSync(filePath);
-    }
-    
-    db.run('DELETE FROM tickets WHERE id = ?', [id], function(err) {
+    database.get('SELECT receiptFileName FROM tickets WHERE id = ?', [id], (err, row) => {
       if (err) {
-        console.error('Error deleting ticket:', err);
-        return res.status(500).json({ error: 'Database error' });
+        console.error('Error fetching ticket:', err);
+        return res.status(500).json({ error: 'Database error', details: err.message });
       }
       
-      res.json({ message: 'Ticket deleted successfully' });
+      if (!row) {
+        return res.status(404).json({ error: 'Ticket not found' });
+      }
+      
+      const filePath = path.join(uploadsDir, row.receiptFileName);
+      if (fs.existsSync(filePath)) {
+        fs.unlinkSync(filePath);
+      }
+      
+      database.run('DELETE FROM tickets WHERE id = ?', [id], function(err) {
+        if (err) {
+          console.error('Error deleting ticket:', err);
+          return res.status(500).json({ error: 'Database error', details: err.message });
+        }
+        
+        res.json({ message: 'Ticket deleted successfully' });
+      });
     });
-  });
+  } catch (error) {
+    console.error('Error in DELETE /tickets/:id:', error);
+    res.status(500).json({ error: 'Server error', details: error.message });
+  }
+});
+
+// Error handling middleware
+app.use((error, req, res, next) => {
+  if (error instanceof multer.MulterError) {
+    if (error.code === 'LIMIT_FILE_SIZE') {
+      return res.status(400).json({ error: 'File size exceeds 5MB limit' });
+    }
+  }
+  console.error('Unhandled error:', error);
+  res.status(500).json({ error: error.message || 'Server error' });
 });
 
 // Vercel serverless function handler
-// Tüm /api/* istekleri buraya yönlendirilir
-module.exports = (req, res) => {
-  // Path'i düzenle (/api/health -> /health)
-  const originalUrl = req.url;
-  const path = originalUrl.replace(/^\/api/, '') || '/';
-  req.url = path;
-  
-  return app(req, res);
+module.exports = async (req, res) => {
+  try {
+    // Path'i düzenle (/api/health -> /health)
+    const originalUrl = req.url;
+    const pathToUse = originalUrl.replace(/^\/api/, '') || '/';
+    req.url = pathToUse;
+    
+    // CORS headers
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    
+    // OPTIONS request
+    if (req.method === 'OPTIONS') {
+      return res.status(200).end();
+    }
+    
+    return app(req, res);
+  } catch (error) {
+    console.error('Serverless function error:', error);
+    return res.status(500).json({ error: 'Internal server error', message: error.message, stack: error.stack });
+  }
 };
-
