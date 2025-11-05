@@ -1,0 +1,15 @@
+# Plesk Node.js Configuration
+# Redirect to Node.js server if not a static file
+RewriteEngine On
+
+# Don't rewrite if the file exists
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+
+# Rewrite API calls to Node.js server
+RewriteRule ^api/(.*)$ http://localhost:3001/api/$1 [P,L]
+
+# Serve static files directly
+RewriteCond %{REQUEST_FILENAME} -f
+RewriteRule ^ - [L]
+
