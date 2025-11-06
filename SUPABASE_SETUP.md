@@ -13,7 +13,7 @@ Bu rehber, Supabase'i projeye entegre etmek için adım adım talimatlar içerir
    - "New Project" butonuna tıklayın
    - **Organization:** Seçin veya oluşturun
    - **Name:** `dekont-ticket` (veya istediğiniz isim)
-   - **Database Password:** Güçlü bir şifre belirleyin (kaydedin!)
+   - **Database Password:** Koray48!.
    - **Region:** En yakın bölgeyi seçin (Avrupa: `eu-central-1`)
    - **Pricing Plan:** Free tier seçin (yeterli)
 
