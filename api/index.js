@@ -257,9 +257,17 @@ app.get('/tickets/user/:userId', async (req, res) => {
   }
 });
 
-app.post('/tickets', upload.single('receipt'), async (req, res) => {
+app.post('/tickets', (req, res, next) => {
+  console.log('📥 POST /tickets route handler called');
+  console.log('Request body keys:', Object.keys(req.body || {}));
+  console.log('Request files:', req.files);
+  console.log('Content-Type:', req.headers['content-type']);
+  next();
+}, upload.single('receipt'), async (req, res) => {
   try {
-    console.log('📥 POST /tickets request received');
+    console.log('📥 POST /tickets request received (after multer)');
+    console.log('File received:', req.file ? 'YES' : 'NO');
+    console.log('Request body:', JSON.stringify(req.body, null, 2));
     
     if (!supabase) {
       console.error('❌ Supabase not initialized');
@@ -271,6 +279,8 @@ app.post('/tickets', upload.single('receipt'), async (req, res) => {
 
     if (!req.file) {
       console.error('❌ No file uploaded');
+      console.error('Request body:', req.body);
+      console.error('Request files:', req.files);
       return res.status(400).json({ error: 'Receipt file is required' });
     }
     
@@ -470,13 +480,24 @@ app.delete('/tickets/:id', async (req, res) => {
   }
 });
 
-// Error handling middleware
+// Error handling middleware - Multer hatalarını yakala
 app.use((error, req, res, next) => {
+  console.error('❌ Express error middleware triggered:', error);
+  console.error('Error type:', error.constructor.name);
+  console.error('Error message:', error.message);
+  console.error('Error stack:', error.stack);
+  
   if (error instanceof multer.MulterError) {
+    console.error('Multer error code:', error.code);
     if (error.code === 'LIMIT_FILE_SIZE') {
       return res.status(400).json({ error: 'File size exceeds 5MB limit' });
     }
+    if (error.code === 'LIMIT_UNEXPECTED_FILE') {
+      return res.status(400).json({ error: 'Unexpected file field' });
+    }
+    return res.status(400).json({ error: `Multer error: ${error.message}`, code: error.code });
   }
+  
   console.error('Unhandled error:', error);
   res.status(500).json({ error: error.message || 'Server error' });
 });
