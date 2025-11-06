@@ -14,7 +14,7 @@ Kullanıcılar bu sayfadan dekont yükleyebilir ve işlemlerini takip edebilir.
 #### Admin Giriş Sayfası
 **URL:** https://dekont-ruby.vercel.app/yönetim-giriş-secure
 
-**Şifre:** `Padisah2024!Secure`
+**Şifre:** `Padisah2025!Secure`
 
 #### Admin Panel
 **URL:** https://dekont-ruby.vercel.app/yönetim-panel-2024-secure

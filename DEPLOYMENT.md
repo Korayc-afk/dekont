@@ -99,7 +99,7 @@ chmod 644 server/database.db  # (oluşturulduktan sonra)
 Plesk'te veya `.env` dosyasında:
 ```env
 VITE_API_URL=/api
-VITE_ADMIN_PASSWORD=Padisah2024!Secure
+VITE_ADMIN_PASSWORD=Padisah2025!Secure
 ```
 
 **Not:** Production'da mutlaka şifreyi değiştirin!

@@ -7,8 +7,8 @@
 
 ### 🔐 Admin Paneli
 **Giriş:** https://dekont-ruby.vercel.app/yönetim-giriş-secure  
-**Panel:** https://dekont-ruby.vercel.app/yönetim-panel-2024-secure  
-**Şifre:** `Padisah2024!Secure`
+**Panel:** https://dekont-ruby.vercel.app/yönetim-panel-2025-secure  
+**Şifre:** `Padisah2025!Secure`
 
 ### 🔍 Kullanıcı Sorgu
 **https://dekont-ruby.vercel.app/sorgu**
@@ -41,14 +41,4 @@
 - **Storage:** Supabase Storage
 - **Hosting:** Vercel
 - **OCR:** Tesseract.js
-
----
-
-## 📞 Destek
-**E-posta:** destek@padisahbet.com  
-**Web:** https://padisah.pro
-
----
-
-**Durum:** ✅ Production Ready
 

@@ -46,7 +46,7 @@ vercel --prod
 4. **Environment Variables ekleyin:**
    ```
    VITE_API_URL=/api
-   VITE_ADMIN_PASSWORD=Padisah2024!Secure
+   VITE_ADMIN_PASSWORD=Padisah2025!Secure
    ```
 
 5. **Deploy butonuna tıklayın!**
@@ -74,7 +74,7 @@ Vercel Dashboard'da şu environment variables'ları ekleyin:
 
 ```
 VITE_API_URL=/api
-VITE_ADMIN_PASSWORD=Padisah2024!Secure
+VITE_ADMIN_PASSWORD=Padisah2025!Secure
 ```
 
 ## 🔧 Kalıcı Storage İçin Alternatifler

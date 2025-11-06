@@ -55,7 +55,7 @@ npm install
 Root dizinde `.env`:
 ```env
 VITE_API_URL=/api
-VITE_ADMIN_PASSWORD=Padisah2024!Secure
+VITE_ADMIN_PASSWORD=Padisah2025!Secure
 ```
 
 `server/` dizininde `.env`:
@@ -92,7 +92,7 @@ npm run build
 
 - **Giriş Sayfası:** `/yönetim-giriş-secure`
 - **Admin Panel:** `/yönetim-panel-2024-secure`
-- **Varsayılan Şifre:** `Padisah2024!Secure` (Production'da mutlaka değiştirin!)
+- **Varsayılan Şifre:** `Padisah2025!Secure` (Production'da mutlaka değiştirin!)
 
 ## 📁 Klasör Yapısı
 

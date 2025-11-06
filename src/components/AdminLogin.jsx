@@ -14,7 +14,7 @@ const AdminLogin = () => {
   const [lockTime, setLockTime] = useState(0)
 
   // Admin şifresi (production'da environment variable'dan alınmalı)
-  const ADMIN_PASSWORD = import.meta.env.VITE_ADMIN_PASSWORD || 'Padisah2024!Secure'
+  const ADMIN_PASSWORD = import.meta.env.VITE_ADMIN_PASSWORD || 'Padisah2025!Secure'
   
   // Session timeout (30 dakika)
   const SESSION_TIMEOUT = 30 * 60 * 1000 // 30 dakika

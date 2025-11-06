@@ -96,7 +96,7 @@ Bu rehber, Supabase'i projeye entegre etmek için adım adım talimatlar içerir
    Root dizinde `.env.local` dosyası oluşturun:
    ```env
    VITE_API_URL=/api
-   VITE_ADMIN_PASSWORD=Padisah2024!Secure
+   VITE_ADMIN_PASSWORD=Padisah2025!Secure
    
    SUPABASE_URL=https://xxxxx.supabase.co
    SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
