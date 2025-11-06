@@ -15,8 +15,26 @@ app.use(cors({
   methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+// Vercel serverless functions için body parser'ı sadece JSON/URL-encoded için kullan
+// Multipart/form-data için multer kullanılacak, bu yüzden body parser'ı devre dışı bırak
+app.use((req, res, next) => {
+  // Multipart/form-data ise body parser'ı atla
+  if (req.headers['content-type']?.includes('multipart/form-data')) {
+    return next();
+  }
+  // Diğer istekler için body parser kullan
+  express.json({ limit: '10mb' })(req, res, next);
+});
+
+app.use((req, res, next) => {
+  // Multipart/form-data ise body parser'ı atla
+  if (req.headers['content-type']?.includes('multipart/form-data')) {
+    return next();
+  }
+  // Diğer istekler için body parser kullan
+  express.urlencoded({ extended: true, limit: '10mb' })(req, res, next);
+});
 
 // Supabase initialization
 const supabaseUrl = process.env.SUPABASE_URL;
