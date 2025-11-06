@@ -81,57 +81,67 @@ async function uploadToSupabase(file, filename) {
   // Bucket adı - önce küçük harf, sonra büyük harf dene
   const bucketNames = ['receipts', 'RECEIPTS', 'Receipts'];
   
-  try {
-    // Service role key ile listBuckets() bazen boş döner, bu yüzden direkt upload deniyoruz
-    let uploadError = null;
-    let lastError = null;
-    
-    // Her bucket adını dene (küçük harf, büyük harf, title case)
-    for (const bucketName of bucketNames) {
-      try {
-        console.log(`📤 Attempting upload to bucket: "${bucketName}"`);
+  // Service role key ile listBuckets() bazen boş döner, bu yüzden direkt upload deniyoruz
+  // Bucket kontrolünü atlayıp direkt upload deniyoruz
+  let lastError = null;
+  
+  // Her bucket adını dene (küçük harf, büyük harf, title case)
+  for (const bucketName of bucketNames) {
+    try {
+      console.log(`📤 Attempting upload to bucket: "${bucketName}"`);
+      
+      const { data, error } = await supabase.storage
+        .from(bucketName)
+        .upload(filename, file.buffer, {
+          contentType: file.mimetype || 'application/octet-stream',
+          upsert: false
+        });
+
+      if (!error) {
+        console.log(`✅ File uploaded successfully to "${bucketName}": ${data.path}`);
         
-        const { data, error } = await supabase.storage
+        // Public URL al
+        const { data: urlData } = supabase.storage
           .from(bucketName)
-          .upload(filename, file.buffer, {
-            contentType: file.mimetype || 'application/octet-stream',
-            upsert: false
-          });
+          .getPublicUrl(filename);
 
-        if (!error) {
-          console.log(`✅ File uploaded successfully to "${bucketName}": ${data.path}`);
-          
-          // Public URL al
-          const { data: urlData } = supabase.storage
-            .from(bucketName)
-            .getPublicUrl(filename);
-
-          return urlData.publicUrl;
-        }
-        
-        lastError = error;
-        console.warn(`⚠️ Upload to "${bucketName}" failed:`, error.message);
-        
-        // Eğer "not found" hatası değilse, diğer bucket'ları deneme
-        if (!error.message?.includes('not found') && !error.message?.includes('does not exist') && !error.message?.includes('Bucket not found')) {
-          throw error;
-        }
-      } catch (err) {
-        lastError = err;
-        uploadError = err;
-        // "not found" hatası değilse, dur
-        if (!err.message?.includes('not found') && !err.message?.includes('does not exist') && !err.message?.includes('Bucket not found')) {
-          throw err;
-        }
+        return urlData.publicUrl;
+      }
+      
+      lastError = error;
+      console.warn(`⚠️ Upload to "${bucketName}" failed:`, error.message);
+      console.warn(`Error details:`, JSON.stringify(error, null, 2));
+      
+      // Eğer "not found" veya "does not exist" hatası ise, bir sonraki bucket'ı dene
+      // Diğer hatalar (permission, RLS, vs.) için dur
+      const isNotFoundError = error.message?.includes('not found') || 
+                             error.message?.includes('does not exist') || 
+                             error.message?.includes('Bucket not found') ||
+                             error.statusCode === 404;
+      
+      if (!isNotFoundError) {
+        // Permission hatası veya başka bir hata - detaylı log ve hata fırlat
+        console.error(`❌ Upload failed with non-404 error:`, error);
+        throw new Error(`Storage upload failed: ${error.message}. Check Storage policies (INSERT policy for service_role) and bucket permissions.`);
+      }
+    } catch (err) {
+      lastError = err;
+      
+      // Eğer "not found" hatası değilse, dur
+      const isNotFoundError = err.message?.includes('not found') || 
+                             err.message?.includes('does not exist') || 
+                             err.message?.includes('Bucket not found');
+      
+      if (!isNotFoundError) {
+        console.error(`❌ Upload error (non-404):`, err);
+        throw err;
       }
     }
-    
-    // Tüm bucket adları denendi ama başarısız oldu
-      throw new Error(`Storage bucket not found. Tried: ${bucketNames.join(', ')}. Error: ${lastError?.message || 'Unknown error'}. Please create a bucket named "receipts" (case-insensitive) in Supabase Dashboard → Storage.`);
-  } catch (error) {
-    console.error('Upload function error:', error);
-    throw error;
   }
+  
+  // Tüm bucket adları denendi ama başarısız oldu
+  const errorMessage = lastError?.message || 'Unknown error';
+  throw new Error(`Storage bucket not found. Tried: ${bucketNames.join(', ')}. Error: ${errorMessage}. Please ensure bucket "receipts" exists in Supabase Dashboard → Storage and has INSERT policy for service_role.`);
 }
 
 // Helper: Delete file from Supabase Storage
