@@ -60,57 +60,56 @@ async function uploadToSupabase(file, filename) {
     throw new Error('Supabase not configured');
   }
 
-  const requestedBucketName = 'receipts'; // İstenen bucket adı (küçük harf)
+  // Bucket adı - önce küçük harf, sonra büyük harf dene
+  const bucketNames = ['receipts', 'RECEIPTS', 'Receipts'];
   
   try {
-    // Önce bucket'ın var olup olmadığını kontrol et ve gerçek adını bul
-    const { data: buckets, error: listError } = await supabase.storage.listBuckets();
+    // Service role key ile listBuckets() bazen boş döner, bu yüzden direkt upload deniyoruz
+    let uploadError = null;
+    let lastError = null;
     
-    let actualBucketName = requestedBucketName;
+    // Her bucket adını dene (küçük harf, büyük harf, title case)
+    for (const bucketName of bucketNames) {
+      try {
+        console.log(`📤 Attempting upload to bucket: "${bucketName}"`);
+        
+        const { data, error } = await supabase.storage
+          .from(bucketName)
+          .upload(filename, file.buffer, {
+            contentType: file.mimetype || 'application/octet-stream',
+            upsert: false
+          });
+
+        if (!error) {
+          console.log(`✅ File uploaded successfully to "${bucketName}": ${data.path}`);
+          
+          // Public URL al
+          const { data: urlData } = supabase.storage
+            .from(bucketName)
+            .getPublicUrl(filename);
+
+          return urlData.publicUrl;
+        }
+        
+        lastError = error;
+        console.warn(`⚠️ Upload to "${bucketName}" failed:`, error.message);
+        
+        // Eğer "not found" hatası değilse, diğer bucket'ları deneme
+        if (!error.message?.includes('not found') && !error.message?.includes('does not exist') && !error.message?.includes('Bucket not found')) {
+          throw error;
+        }
+      } catch (err) {
+        lastError = err;
+        uploadError = err;
+        // "not found" hatası değilse, dur
+        if (!err.message?.includes('not found') && !err.message?.includes('does not exist') && !err.message?.includes('Bucket not found')) {
+          throw err;
+        }
+      }
+    }
     
-    if (listError) {
-      console.error('Error listing buckets:', listError);
-      console.warn('⚠️ Could not list buckets, using requested name:', requestedBucketName);
-    } else {
-      // Case-insensitive kontrol - bucket adını bul
-      const foundBucket = buckets?.find(b => b.name.toLowerCase() === requestedBucketName.toLowerCase());
-      if (!foundBucket) {
-        console.error('Available buckets:', buckets?.map(b => b.name));
-        throw new Error(`Storage bucket "${requestedBucketName}" not found. Available buckets: ${buckets?.map(b => b.name).join(', ') || 'none'}. Please create it in Supabase Dashboard → Storage.`);
-      }
-      // Gerçek bucket adını kullan (büyük/küçük harf korunur)
-      actualBucketName = foundBucket.name;
-      console.log(`✅ Bucket found: "${actualBucketName}" (requested: "${requestedBucketName}")`);
-    }
-
-    const { data, error } = await supabase.storage
-      .from(actualBucketName)
-      .upload(filename, file.buffer, {
-        contentType: file.mimetype || 'application/octet-stream',
-        upsert: false
-      });
-
-    if (error) {
-      console.error('Supabase upload error:', error);
-      console.error('Upload error details:', {
-        message: error.message,
-        statusCode: error.statusCode,
-        error: error
-      });
-      
-      if (error.message?.includes('not found') || error.message?.includes('does not exist')) {
-        throw new Error(`Storage bucket "${bucketName}" not found. Please create it in Supabase Dashboard → Storage.`);
-      }
-      
-      throw new Error(`Storage error: ${error.message}`);
-    }
-
-    // Public URL al
-    const { data: urlData } = supabase.storage
-      .from(actualBucketName)
-      .getPublicUrl(filename);
-
-    return urlData.publicUrl;
+    // Tüm bucket adları denendi ama başarısız oldu
+      throw new Error(`Storage bucket not found. Tried: ${bucketNames.join(', ')}. Error: ${lastError?.message || 'Unknown error'}. Please create a bucket named "receipts" (case-insensitive) in Supabase Dashboard → Storage.`);
   } catch (error) {
     console.error('Upload function error:', error);
     throw error;
@@ -123,18 +122,26 @@ async function deleteFromSupabase(filename) {
     return;
   }
 
-  const requestedBucketName = 'receipts';
-  
-  // Gerçek bucket adını bul (case-insensitive)
-  const { data: buckets } = await supabase.storage.listBuckets();
-  const actualBucketName = buckets?.find(b => b.name.toLowerCase() === requestedBucketName.toLowerCase())?.name || requestedBucketName;
+  const bucketNames = ['receipts', 'RECEIPTS', 'Receipts'];
   
   // Path'den filename çıkar (receipts/xxx.jpg -> xxx.jpg)
   const filePath = filename.includes('/') ? filename.split('/').pop() : filename;
 
-  await supabase.storage
-    .from(actualBucketName)
-    .remove([filePath]);
+  // Her bucket adını dene
+  for (const bucketName of bucketNames) {
+    try {
+      const { error } = await supabase.storage
+        .from(bucketName)
+        .remove([filePath]);
+      
+      if (!error) {
+        console.log(`✅ File deleted from "${bucketName}"`);
+        return;
+      }
+    } catch (err) {
+      // Devam et, diğer bucket'ı dene
+    }
+  }
 }
 
 // Routes
