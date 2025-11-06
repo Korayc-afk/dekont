@@ -505,10 +505,16 @@ app.use((error, req, res, next) => {
 // Vercel serverless function handler
 const handler = async (req, res) => {
   try {
+    // İlk log - istek geldi
+    console.log(`🔵 [${req.method}] ${req.url} - Request received`);
+    console.log('Request headers:', JSON.stringify(req.headers, null, 2));
+    
     // Path'i düzenle (/api/health -> /health)
     const originalUrl = req.url;
     const pathToUse = originalUrl.replace(/^\/api/, '') || '/';
     req.url = pathToUse;
+    
+    console.log(`🔄 Path transformed: ${originalUrl} -> ${pathToUse}`);
     
     // CORS headers
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -517,14 +523,17 @@ const handler = async (req, res) => {
     
     // OPTIONS request
     if (req.method === 'OPTIONS') {
+      console.log('✅ OPTIONS request handled');
       return res.status(200).end();
     }
     
     // Supabase kontrolü
     if (!supabase && pathToUse !== '/health') {
-      console.error('Supabase not initialized. URL:', supabaseUrl ? 'SET' : 'MISSING', 'Key:', supabaseServiceKey ? 'SET' : 'MISSING');
+      console.error('❌ Supabase not initialized. URL:', supabaseUrl ? 'SET' : 'MISSING', 'Key:', supabaseServiceKey ? 'SET' : 'MISSING');
     }
     
+    // Express app'e yönlendir
+    console.log(`➡️ Forwarding to Express app: ${req.method} ${pathToUse}`);
     return app(req, res);
   } catch (error) {
     console.error('Serverless function error:', error);
