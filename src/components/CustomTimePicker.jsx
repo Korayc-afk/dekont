@@ -103,13 +103,13 @@ const CustomTimePicker = ({ value, onChange, max, required, className }) => {
       {isOpen && (
         <>
           <div 
-            className="fixed inset-0 z-10" 
+            className="fixed inset-0 z-10 bg-black/20" 
             onClick={() => setIsOpen(false)}
           ></div>
-          <div className="absolute top-full left-0 mt-2 z-20 glass rounded-xl p-4 border border-white/20 shadow-2xl">
+          <div className="absolute top-full left-0 mt-2 z-20 bg-slate-900/95 backdrop-blur-lg rounded-xl p-4 border border-white/30 shadow-2xl">
             <div className="flex gap-4 items-center">
               <div className="flex flex-col items-center">
-                <label className="text-white/70 text-xs mb-2">Saat</label>
+                <label className="text-white text-xs mb-2 font-semibold">Saat</label>
                 <div className="flex flex-col gap-1 max-h-48 overflow-y-auto">
                   {Array.from({ length: 24 }, (_, i) => {
                     const isMax = max && i === maxHours && minutes > maxMinutes
@@ -123,12 +123,12 @@ const CustomTimePicker = ({ value, onChange, max, required, className }) => {
                           setIsOpen(false)
                         }}
                         disabled={isDisabled}
-                        className={`w-12 px-3 py-1 rounded text-sm transition-all ${
+                        className={`w-12 px-3 py-1 rounded text-sm transition-all font-medium ${
                           hours === i
-                            ? 'bg-blue-600 text-white'
+                            ? 'bg-blue-600 text-white shadow-lg'
                             : isDisabled
                             ? 'text-white/30 cursor-not-allowed'
-                            : 'text-white/70 hover:bg-white/10'
+                            : 'text-white hover:bg-white/20 hover:text-white'
                         }`}
                       >
                         {String(i).padStart(2, '0')}
@@ -138,10 +138,10 @@ const CustomTimePicker = ({ value, onChange, max, required, className }) => {
                 </div>
               </div>
               
-              <div className="text-white/70 text-2xl">:</div>
+              <div className="text-white text-2xl font-bold">:</div>
               
               <div className="flex flex-col items-center">
-                <label className="text-white/70 text-xs mb-2">Dakika</label>
+                <label className="text-white text-xs mb-2 font-semibold">Dakika</label>
                 <div className="flex flex-col gap-1 max-h-48 overflow-y-auto">
                   {Array.from({ length: 60 }, (_, i) => {
                     const isDisabled = max && hours === maxHours && i > maxMinutes
@@ -154,12 +154,12 @@ const CustomTimePicker = ({ value, onChange, max, required, className }) => {
                           setIsOpen(false)
                         }}
                         disabled={isDisabled}
-                        className={`w-12 px-3 py-1 rounded text-sm transition-all ${
+                        className={`w-12 px-3 py-1 rounded text-sm transition-all font-medium ${
                           minutes === i
-                            ? 'bg-blue-600 text-white'
+                            ? 'bg-blue-600 text-white shadow-lg'
                             : isDisabled
                             ? 'text-white/30 cursor-not-allowed'
-                            : 'text-white/70 hover:bg-white/10'
+                            : 'text-white hover:bg-white/20 hover:text-white'
                         }`}
                       >
                         {String(i).padStart(2, '0')}
